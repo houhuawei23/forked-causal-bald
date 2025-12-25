@@ -135,3 +135,7 @@ experiments/
 slurm-*.out
 slurm.sh
 workspace.code-workspace
+
+# hhw
+**/.**
+**/*.RData
