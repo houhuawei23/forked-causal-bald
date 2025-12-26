@@ -1,0 +1,782 @@
+\documentclass[12pt]{article}
+%\usepackage{mathbbold}
+\usepackage{ctex}
+\usepackage{amsfonts,mathrsfs,amsthm,amssymb,amsmath}
+\usepackage{multirow}
+\usepackage{bbding}
+\usepackage{graphicx,color}
+\usepackage{rotating}
+\usepackage[justification=justified,singlelinecheck=off]{caption}
+\usepackage{bm}
+\usepackage{epstopdf}
+\usepackage[colorlinks,linkcolor=blue,urlcolor=blue,anchorcolor=blue,citecolor=blue]{hyperref}
+\usepackage[noend]{algpseudocode}
+\usepackage{algorithmicx,algorithm}
+\usepackage{natbib}
+\usepackage{longtable,booktabs}
+\usepackage{geometry}
+\usepackage{CJK}
+\usepackage{listings}
+\usepackage{xcolor}
+%\usepackage{times}
+%\usepackage{colortbl}
+%\renewcommand{\theequation}{\thesection.\arabic{equation}}%for the form (1.1)(2.8)
+\geometry{a4paper, left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+\linespread{1.4}
+
+\renewcommand{\tablename}{\footnotesize\textbf{Table}}
+
+%\theoremstyle{plain} \newtheorem{theorem}{Theorem}
+%\theoremstyle{definition} \newtheorem{Defi}{Definition}
+%\theoremstyle{remark} \newtheorem{Rem}{Remark}
+%\theoremstyle{plain} \newtheorem{lemma}{Lemma}
+
+\newtheorem{defi}{\sc Definition}[section]
+\newtheorem{theorem}{\sc Theorem}[section]
+\newtheorem{lemma}{\sc Lemma}[section]
+\newtheorem{prop}{\sc Proposition}[section]
+\newtheorem{coro}{\sc Corollary}[section]
+\newtheorem{rema}{\sc Remark}[section]
+%\newtheorem{exam}{\sc Example}[section]
+\renewcommand{\theequation}{{\arabic{section}.\arabic{equation}}}
+
+%the four below to generate roman number
+\makeatletter
+\newcommand{\rmnum}[1]{\romannumeral #1}
+\newcommand{\Rmnum}[1]{\expandafter\@slowromancap\romannumeral #1@}
+\newcommand{\M}{\mathcal{M}}
+\newcommand{\I}{\mathcal{I}}
+\newcommand{\whb}{\widehat{\bm\beta}}
+
+\makeatother
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+
+% 代码样式设置
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=5pt,
+    frame=single,
+    breaklines=true,
+    breakatwhitespace=false,
+    tabsize=4,
+    showstringspaces=false
+}
+
+\begin{document}
+\title{基于贝叶斯统计决策的因果主动学习研究报告}
+\date{}
+
+\author{姓名$^1$	\\
+School of Data Science, Renmin University of China
+}
+
+\maketitle
+
+\begin{abstract}
+本报告结合贝叶斯统计决策课程的理论知识与 Causal-BALD 项目的实践，系统性地介绍了基于贝叶斯方法的因果推断主动学习框架。报告首先回顾了贝叶斯统计的核心概念，包括后验分布、贝叶斯推断、贝叶斯决策以及信息论在主动学习中的应用。然后深入分析了 Causal-BALD 方法，该方法将贝叶斯主动学习与因果推断相结合，通过信息论获取函数在治疗效应估计中实现了样本效率的提升。实验结果表明，该方法在合成数据集、IHDP 和 CMNIST 等数据集上显著优于基线方法，验证了贝叶斯方法在因果推断主动学习中的有效性。
+
+\textbf{关键词：} 贝叶斯统计、因果推断、主动学习、个性化治疗效应、信息论
+\end{abstract}
+
+\section{背景介绍}
+
+\subsection{因果推断与个性化治疗效应估计}
+
+在现代机器学习与统计学习中，因果推断是一个重要且具有挑战性的领域。在医学、政策制定、推荐系统等实际应用中，我们常常需要回答"如果采取不同的行动，结果会如何变化"这类因果问题。
+
+在因果推断的框架中，我们关注的核心概念是\textbf{个性化治疗效应（Individual Treatment Effect, ITE）}。对于个体 $u$，其个体治疗效果定义为：
+\begin{equation}
+\text{ITE}(u) = Y^1(u) - Y^0(u)
+\end{equation}
+其中 $Y^1(u)$ 表示接受治疗时的潜在结果，$Y^0(u)$ 表示未接受治疗时的潜在结果。然而，由于因果推断的\textbf{根本问题（Fundamental Problem of Causal Inference）}，我们无法同时观察到同一个体的两种潜在结果。
+
+因此，在实际应用中，我们转而估计\textbf{条件平均治疗效果（Conditional Average Treatment Effect, CATE）}：
+\begin{equation}
+\tau(\mathbf{x}) = \mathbb{E}[Y^1 - Y^0 \mid \mathbf{X} = \mathbf{x}]
+\end{equation}
+在满足一致性（Consistency）、无混杂性（Unconfoundedness）和重叠性（Overlap）三个假设的条件下，CATE 可以从观测数据中识别：
+\begin{equation}
+\tau(\mathbf{x}) = \mathbb{E}[Y \mid T=1, \mathbf{X}=\mathbf{x}] - \mathbb{E}[Y \mid T=0, \mathbf{X}=\mathbf{x}]
+\end{equation}
+其中 $T \in \{0,1\}$ 表示治疗分配，$\mathbf{X}$ 表示协变量向量。
+
+\subsection{贝叶斯方法在因果推断中的应用}
+
+在本课程中，我们学习了贝叶斯统计的核心思想：\textbf{将未知参数视为随机变量，利用先验信息与样本信息，通过贝叶斯公式得到后验分布}。贝叶斯公式可以表示为：
+\begin{equation}
+p(\boldsymbol{\theta} \mid \mathcal{D}) = \frac{p(\mathcal{D} \mid \boldsymbol{\theta}) p(\boldsymbol{\theta})}{p(\mathcal{D})} = \frac{p(\mathcal{D} \mid \boldsymbol{\theta}) p(\boldsymbol{\theta})}{\int p(\mathcal{D} \mid \boldsymbol{\theta}') p(\boldsymbol{\theta}') d\boldsymbol{\theta}'}
+\end{equation}
+其中：
+\begin{itemize}
+\item $p(\boldsymbol{\theta})$ 是先验分布（Prior Distribution），代表我们对参数 $\boldsymbol{\theta}$ 的先验知识
+\item $p(\mathcal{D} \mid \boldsymbol{\theta})$ 是似然函数（Likelihood），表示数据在给定参数下的概率
+\item $p(\boldsymbol{\theta} \mid \mathcal{D})$ 是后验分布（Posterior Distribution），综合了先验信息和样本信息
+\item $p(\mathcal{D})$ 是边际似然（Marginal Likelihood），作为归一化常数
+\end{itemize}
+
+在因果推断中，贝叶斯方法具有以下优势：
+
+\begin{enumerate}
+\item \textbf{不确定性量化}：通过后验分布，我们可以量化模型参数的不确定性，从而量化 CATE 估计的不确定性。这对于理解估计的可靠性至关重要。
+
+\item \textbf{认知不确定性建模}：在课程中我们学习了认知不确定性（Epistemic Uncertainty）和偶然不确定性（Aleatory Uncertainty）的区别。对于因果推断，认知不确定性反映了我们对模型参数知识的缺乏，而这种不确定性可以通过获取更多数据来减少。
+
+\item \textbf{信息论基础}：贝叶斯方法天然地与信息论结合。\textbf{互信息（Mutual Information）}可以作为衡量数据点信息量的指标：
+\begin{equation}
+\text{I}(Y; \boldsymbol{\Omega} \mid \mathbf{x}, \mathcal{D}_{\text{train}}) = \text{H}(Y \mid \mathbf{x}, \mathcal{D}_{\text{train}}) - \mathbb{E}_{\boldsymbol{\omega} \sim p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})}[\text{H}(Y \mid \mathbf{x}, \boldsymbol{\omega})]
+\end{equation}
+其中 $\text{H}(\cdot)$ 表示熵，$\boldsymbol{\Omega}$ 表示模型参数的随机变量。
+\end{enumerate}
+
+\subsection{主动学习框架}
+
+主动学习（Active Learning）是一种半监督学习方法，其核心思想是：\textbf{让模型主动选择最有价值的未标记数据进行标注，从而用更少的标注样本达到更好的性能}。
+
+在因果推断的主动学习设置中，我们面临以下场景：
+\begin{itemize}
+\item \textbf{池数据集（Pool Dataset）}：$\mathcal{D}_{\text{pool}} = \{(\mathbf{x}_i, t_i)\}_{i=1}^{n_{\text{pool}}}$，包含协变量和治疗分配，但没有结果标签
+\item \textbf{训练集（Training Set）}：$\mathcal{D}_{\text{train}} = \{(\mathbf{x}_i, t_i, y_i)\}_{i=1}^{n_{\text{train}}}$，包含已标注的结果
+\item \textbf{获取函数（Acquisition Function）}：$a(\mathcal{D}_{\text{pool}}, p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}}))$，用于从池数据中选择最有信息量的样本
+\end{itemize}
+
+主动学习的流程如下：
+\begin{enumerate}
+\item 使用初始训练集训练模型，得到后验分布 $p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})$
+\item 使用获取函数在池数据集中选择一批样本 $\{(\mathbf{x}_i^*, t_i^*)\}_{i=1}^b$
+\item 通过"神谕"（Oracle，如医生的诊断、实验测量等）获取这些样本的结果 $y_i^*$
+\item 将新标注的样本加入训练集，重新训练模型
+\item 重复步骤 2-4，直到达到性能要求或预算耗尽
+\end{enumerate}
+
+\subsection{贝叶斯主动学习与因果推断的结合}
+
+将贝叶斯方法应用于因果推断的主动学习，我们面临一个关键挑战：\textbf{传统主动学习关注预测的不确定性，但在因果推断中，我们需要关注治疗效应的可识别性}。
+
+具体而言，即使模型对某个数据点的结果预测不确定性很高，如果该点位于治疗组和对照组非重叠的支持区域（Non-overlapping Support），我们仍然无法估计该点的治疗效应。因此，\textbf{一个好的因果主动学习获取函数应该同时考虑信息增益和重叠性（Overlap）}。
+
+这正是 Causal-BALD 方法要解决的核心问题。
+
+\section{方法介绍：Causal-BALD}
+
+\subsection{问题设定}
+
+在 Causal-BALD 中，我们使用深度贝叶斯模型来估计 CATE。模型参数 $\boldsymbol{\omega} \sim p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})$ 的后验分布通过深度核高斯过程（DUE）或深度集成等方法获得。
+
+对于给定协变量 $\mathbf{x}$ 和治疗分配 $t$，模型的预测为：
+\begin{equation}
+\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t) = \mathbb{E}[Y \mid T=t, \mathbf{X}=\mathbf{x}, \boldsymbol{\omega}]
+\end{equation}
+相应地，CATE 估计为：
+\begin{equation}
+\hat{\tau}_{\boldsymbol{\omega}}(\mathbf{x}) = \hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, 1) - \hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, 0)
+\end{equation}
+我们的目标是从池数据集中选择能够最大化学习 CATE 效率的样本。
+
+\subsection{朴素采集函数及其局限性}
+
+在介绍 Causal-BALD 之前，让我们先分析几种朴素的采集函数，它们展示了为什么需要专门针对因果推断设计的获取函数。
+
+\subsubsection{随机采集（Random Acquisition）}
+
+最简单的采集策略是随机选择：
+\begin{equation}
+a_{\text{random}}(\mathcal{D}_{\text{pool}}) = \text{随机选择} \{(\mathbf{x}_i, t_i)\}_{i=1}^b
+\end{equation}
+\textbf{问题}：随机采集反映了池数据中的固有偏差。如果池数据的模式与非重叠区域重合，该策略会频繁获取无信息的样本，导致资源过度分配到分布的模式上。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{paper/images/1.jpg}
+\caption{图1：观测数据示例}
+\end{figure}
+
+\subsubsection{反事实倾向获取（Counterfactual Propensity Acquisition）}
+
+基于倾向得分的获取函数：
+\begin{equation}
+a_{\pi}(\mathbf{x}, t) = 1 - \hat{\pi}_t(\mathbf{x})
+\end{equation}
+其中 $\hat{\pi}_t(\mathbf{x}) = P(T=t \mid \mathbf{X}=\mathbf{x})$ 是倾向得分估计量。
+
+\textbf{问题}：虽然这种方法倾向于选择反事实观察概率较高的点，但仍会使数据选择偏向池数据的模式，无法有效处理弱重叠区域。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{paper/images/2.jpg}
+\caption{图2：朴素采集函数的影响}
+\end{figure}
+
+\subsubsection{$\tau$-BALD}
+
+直接基于 CATE 不确定性的获取函数：
+\begin{equation}
+\text{I}(Y^1 - Y^0; \boldsymbol{\Omega} \mid \mathbf{x}, t, \mathcal{D}_{\text{train}}) \approx \text{Var}_{\boldsymbol{\omega} \sim p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, 1) - \hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, 0)]
+\end{equation}
+\textbf{问题}：这是一个\textbf{不可约的不确定性度量}。如果在未观察到的治疗 $t'$ 的情况下对标签不确定，$\tau$-BALD 就会很高，无论在实际治疗 $t$ 的情况下对结果的确定性如何。这使得 $\tau$-BALD 在低密度区域和没有重叠的区域最高，导致无信息的获取。
+
+\subsubsection{$\mu$-BALD}
+
+基于可观测结果不确定性的获取函数：
+\begin{equation}
+\text{I}(Y^t; \boldsymbol{\Omega} \mid \mathbf{x}, t, \mathcal{D}_{\text{train}}) \approx \text{Var}_{\boldsymbol{\omega} \sim p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t)]
+\end{equation}
+\textbf{问题}：$\mu$-BALD 只包含可观察的量，但没有考虑我们对反事实结果的信念。当我们对 $(\mathbf{x}, t')$ 也非常不确定时，即使 $(\mathbf{x}, t')$ 不在池数据中，这种方法也可能倾向于获取 $(\mathbf{x}, t)$。由于我们既不能减少对这种 $(\mathbf{x}, t')$ 的不确定性，也不知道治疗效果，所以获取函数在数据效率方面不是最优的。
+
+从上述分析可以看出，朴素方法要么只考虑重叠（如倾向得分获取），要么只考虑信息增益（如 $\tau$-BALD、$\mu$-BALD），但都忽略了另一个重要方面。
+
+\subsection{Causal-BALD 方法}
+
+Causal-BALD 方法的核心创新在于\textbf{同时考虑信息增益和重叠性}。论文提出了三种获取函数：$\mu\pi$-BALD、$\rho$-BALD 和 $\mu\rho$-BALD。
+
+\subsubsection{$\mu\pi$-BALD：简单乘法结合}
+
+第一种方法是将 $\mu$-BALD 与倾向得分获取项相乘：
+\begin{equation}
+\text{I}(\mu\pi \mid \mathbf{x}, t, \mathcal{D}_{\text{train}}) = (1 - \hat{\pi}_t(\mathbf{x})) \cdot \text{Var}_{\boldsymbol{\omega} \sim p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t)]
+\end{equation}
+\textbf{直觉}：
+\begin{itemize}
+\item $(1 - \hat{\pi}_t(\mathbf{x}))$ 项鼓励选择反事实观察概率高的点（即重叠区域）
+\item $\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t)]$ 项鼓励选择信息增益高的点
+\end{itemize}
+\textbf{优点}：简单直观，易于实现
+
+\textbf{缺点}：在高维情况下，倾向得分估计可能不准确，导致性能下降
+
+\subsubsection{$\rho$-BALD：信息论方法}
+
+$\rho$-BALD 采用更严格的信息论方法，定义为：
+\begin{equation}
+\text{I}(Y^t; \hat{\tau}_{\boldsymbol{\Omega}} \mid \mathbf{x}, t, \mathcal{D}_{\text{train}}) \gtrapprox \frac{1}{2}\log\left(\frac{\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t)] - 2\text{Cov}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t), \hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t')]}{\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t')]} + 1\right)
+\end{equation}
+其中 $t' = 1-t$ 表示反事实治疗。
+
+\textbf{核心思想}：
+\begin{enumerate}
+\item 通过反事实结果方差 $\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t')]$ 的倒数进行缩放，使采集偏向于我们已知反事实结果的示例（满足重叠）
+\item 通过协方差项 $\text{Cov}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t), \hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t')]$ 进行折扣，这是一个有待深入讨论的概念
+\end{enumerate}
+\textbf{优点}：理论严格，不依赖倾向得分估计
+
+\textbf{缺点}：在某些情况下可能导致次优的数据效率
+
+\subsubsection{$\mu\rho$-BALD：最佳组合（推荐方法）}
+
+$\mu\rho$-BALD 结合了 $\mu$-BALD 和 $\rho$-BALD 的优点：
+\begin{equation}
+\text{I}(\mu\rho \mid \mathbf{x}, t, \mathcal{D}_{\text{train}}) = \text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t)] \cdot \frac{\text{Var}_{\boldsymbol{\omega}}[\hat{\tau}_{\boldsymbol{\omega}}(\mathbf{x})]}{\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t')]}
+\end{equation}
+\textbf{直觉}：
+\begin{itemize}
+\item $\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t)]$：对当前治疗结果的不确定性
+\item $\frac{\text{Var}_{\boldsymbol{\omega}}[\hat{\tau}_{\boldsymbol{\omega}}(\mathbf{x})]}{\text{Var}_{\boldsymbol{\omega}}[\hat{\mu}_{\boldsymbol{\omega}}(\mathbf{x}, t')]}$：对治疗效应不确定性的归一化度量（考虑重叠）
+\end{itemize}
+这样，在比率可能相等的情况下，更倾向于当前模型更不确定的数据点，同时在重叠假设满足的区域内更均匀地分布。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{paper/images/3.jpg}
+\caption{图3：Causal-BALD 获取函数的效果}
+\end{figure}
+
+从图 3 可以看出，$\mu\rho$-BALD 的训练数据采集在满足重叠假设的池数据支持上分布得更加均匀，CATE 估计器在该区域的准确性最高。
+
+\subsection{贝叶斯决策理论视角}
+
+从贝叶斯决策理论的角度来看，Causal-BALD 获取函数实际上是在优化一个\textbf{信息论损失函数}。
+
+在课程中，我们学习了\textbf{抽样信息期望值（Expected Value of Sampling Information, EVSI）}的概念：
+\begin{equation}
+\text{EVSI} = \mathbb{E}_{\mathcal{D}}[\max_{\boldsymbol{\omega}} U(\boldsymbol{\omega}, \mathcal{D})] - \max_{\boldsymbol{\omega}} \mathbb{E}_{\mathcal{D}}[U(\boldsymbol{\omega}, \mathcal{D})]
+\end{equation}
+其中 $U(\boldsymbol{\omega}, \mathcal{D})$ 是效用函数。
+
+在主动学习中，我们选择数据点 $\mathbf{x}^*$ 以最大化：
+\begin{equation}
+\mathbf{x}^* = \arg\max_{\mathbf{x} \in \mathcal{D}_{\text{pool}}} \text{EVSI}(\mathbf{x})
+\end{equation}
+Causal-BALD 的获取函数可以看作是对 EVSI 的近似，其中：
+\begin{itemize}
+\item 效用函数是 CATE 估计的准确性
+\item 信息增益通过互信息量化
+\item 重叠性约束确保治疗效应的可识别性
+\end{itemize}
+
+\section{实验}
+
+\subsection{实验设置}
+
+\subsubsection{数据集}
+
+实验使用了三个数据集，涵盖了不同的挑战和场景：
+
+\textbf{1. 合成数据集（Synthetic Dataset）}
+
+设计用于展示各种偏差模式的数据集。主要特点：
+\begin{itemize}
+\item 包含一个主要数据模式
+\item 设计有弱重叠或无重叠区域
+\item 用于说明不同获取函数的行为
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{assets/synthetic_dataset.png}
+\caption{合成数据集可视化}
+\end{figure}
+
+\textbf{2. IHDP 数据集}
+
+因果治疗效果文献中的标准基准数据集，源自真实的随机对照试验：
+\begin{itemize}
+\item 样本数：747 个
+\item 协变量维度：25 维
+\item 特点：包含真实的治疗分配和结果数据
+\item 挑战：存在选择偏差
+\end{itemize}
+
+\textbf{3. CMNIST 数据集}
+
+基于 MNIST 的高维、大样本数据集：
+\begin{itemize}
+\item 样本数：35,000+
+\item 输入：MNIST 手写数字图像
+\item 特点：模型需要隐式学习从高维图像到潜在一维流形 $\phi$ 的非线性映射
+\item 挑战：高维输入空间、非线性响应面
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{assets/cmnist_dataset.png}
+\caption{CMNIST 数据集示例}
+\end{figure}
+
+\subsubsection{模型}
+
+实验使用\textbf{深度核高斯过程（Deep Kernel Gaussian Process, DUE）}作为基础模型：
+
+\textbf{为什么选择 DUE？}
+\begin{itemize}
+\item DUE 是深度核学习的一个实例，使用深度特征提取器转换输入
+\item 在提取的特征表示上定义高斯过程核，能够处理高维数据
+\item 使用变分诱导点近似和谱归一化，实现可靠的不确定性量化
+\item DUE 在 IHDP 数据集上取得了最优结果
+\end{itemize}
+
+\textbf{模型架构}：
+\begin{itemize}
+\item 深度特征提取器：包含残差连接和谱归一化
+\item 高斯过程层：使用变分诱导点近似
+\item 区分模型参数 $\boldsymbol{\theta}$ 和变分参数 $\boldsymbol{\omega}$，仅对 $\boldsymbol{\omega}$ 采用贝叶斯方法
+\end{itemize}
+
+由于 DUE 是高斯过程，我们可以直接获得结果的全高斯后验分布，从中可以使用均值和协方差。采样非常高效，只需要在深度模型中进行一次前向传播。
+
+\subsubsection{基线方法}
+
+实验与以下基线方法进行比较：
+\begin{enumerate}
+\item \textbf{随机（Random）}：随机均匀选择点
+\item \textbf{倾向得分（Propensity Score）}：基于倾向得分（公式 4）的获取函数
+\item \textbf{$\gamma$（Sigmoid Error Rate）}：Sundin 等人提出的基于 S 型错误率的方法，调整用于贝叶斯深度神经网络
+\end{enumerate}
+
+\subsubsection{评估指标}
+
+使用\textbf{精确估计异质效应（Precision in Estimation of Heterogeneous Effect, PEHE）}的平方根作为评估指标：
+\begin{equation}
+\sqrt{\epsilon_{\text{PEHE}}} = \sqrt{\frac{1}{N}\sum_{\mathbf{x}} (\hat{\tau}(\mathbf{x}) - \tau(\mathbf{x}))^2}
+\end{equation}
+其中 $\tau(\mathbf{x})$ 是真实的 CATE，$\hat{\tau}(\mathbf{x})$ 是估计的 CATE。
+
+\subsubsection{主动学习参数}
+
+每个数据集的主动学习参数如下表所示：
+
+\begin{table}[h]
+\centering
+\caption{每个数据集的主动学习参数总结}
+\begin{tabular}{cccccc}
+\toprule
+数据集 & 热身大小 & 获取大小 & 获取步数 & 池大小 & 验证大小 \\
+\midrule
+Synthetic & 10 & 10 & 30 & 10k & 1k \\
+IHDP & 100 & 10 & 38 & 471 & 201 \\
+CMNIST & 250 & 50 & 55 & 35k & 15k \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+其中：
+\begin{itemize}
+\item \textbf{热身大小}：初始训练集中的样本数量
+\item \textbf{获取大小}：每个获取步骤中标注的样本数量
+\item \textbf{获取步数}：查询一批标签的次数
+\item \textbf{池大小}：池数据集中的样本数量
+\item \textbf{验证大小}：用于模型选择的验证集大小
+\end{itemize}
+
+\subsection{实验结果}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{paper/images/5.jpg}
+\caption{实验结果：DUE 模型的 PEHE 性能（阴影部分为标准误差）}
+\end{figure}
+
+\subsubsection{合成数据集结果}
+
+从图 5 左侧可以看出，在合成数据集上：
+\begin{itemize}
+\item \textbf{$\mu\rho$-BALD} 显著优于所有基线方法
+\item \textbf{$\mu$-BALD、$\rho$-BALD、$\mu\pi$-BALD} 也都优于基线方法
+\item 认知不确定性感知的方法（$\mu\rho$-BALD、$\mu$-BALD 等）比随机、倾向得分和 $\gamma$ 方法更高效地采样
+\end{itemize}
+
+\subsubsection{IHDP 数据集结果}
+
+从图 5 右侧可以看出，在 IHDP 数据集上：
+\begin{itemize}
+\item \textbf{$\mu\rho$-BALD} 在 40 个种子的实验中表现最优
+\item 随着获取步数的增加，$\mu\rho$-BALD 的性能持续改善
+\item 认知不确定性感知的方法在整个获取过程中都保持优势
+\end{itemize}
+
+\subsubsection{维度影响分析}
+
+论文的一个重要发现是不同方法对协变量维度的敏感性：
+\begin{itemize}
+\item \textbf{$\rho$-BALD}：性能随着协变量维度的增加而提高
+\item \textbf{$\mu\pi$-BALD}：性能随着协变量维度的增加而变差（因为倾向得分估计在高维情况下存在问题）
+\item \textbf{$\mu$-BALD 和 $\mu\rho$-BALD}：在所有三个任务中的两项上表现稳定，$\mu\rho$-BALD 相对于 $\mu$-BALD 有统计学上的显著改进
+\end{itemize}
+
+这些结果表明：
+\begin{enumerate}
+\item \textbf{$\mu\rho$-BALD 比 $\mu\pi$-BALD 更稳健}，特别是在高维协变量的情况下
+\item \textbf{$\mu\rho$-BALD 不需要额外的倾向得分模型}，简化了实现
+\end{enumerate}
+
+\subsubsection{收敛性分析}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{assets/convergence.png}
+\caption{收敛性可视化}
+\end{figure}
+
+从收敛曲线可以看出，$\mu\rho$-BALD 不仅最终性能最优，而且收敛速度也更快，体现了其样本效率的优势。
+
+\subsection{实验分析}
+
+\subsubsection{为什么 Causal-BALD 有效？}
+
+\begin{enumerate}
+\item \textbf{同时优化信息增益和重叠性}：$\mu\rho$-BALD 通过在信息增益项上乘以重叠归一化项，确保选择的数据点既具有高信息量，又位于可识别治疗效应的区域。
+
+\item \textbf{避免不可约不确定性}：与 $\tau$-BALD 不同，$\mu\rho$-BALD 避免了选择位于非重叠区域的样本，这些样本即使不确定性很高也无法提供有用的信息。
+
+\item \textbf{处理高维数据}：不依赖倾向得分估计，使得方法在高维情况下更加稳健。
+\end{enumerate}
+
+\subsubsection{从贝叶斯视角的理解}
+
+从贝叶斯统计的角度，Causal-BALD 的成功可以理解为：
+\begin{enumerate}
+\item \textbf{后验分布的充分利用}：通过后验分布 $p(\boldsymbol{\Omega} \mid \mathcal{D}_{\text{train}})$，我们能够量化不同数据点对模型参数信息增益的贡献。
+
+\item \textbf{信息论原理}：互信息作为信息增益的度量，在贝叶斯框架下自然地出现，反映了我们从观察新数据中可以获得的期望信息。
+
+\item \textbf{决策理论优化}：获取函数本质上是在优化一个信息论损失函数，这与贝叶斯决策理论中的 EVSI 概念一致。
+\end{enumerate}
+
+\subsubsection{局限性}
+
+实验也揭示了一些局限性：
+\begin{enumerate}
+\item \textbf{无混杂假设的依赖}：方法假设无混杂性成立，但在存在隐藏混杂因子的情况下，可能导致有偏采样。
+
+\item \textbf{计算成本}：虽然使用了变分近似，但在大规模数据集上，计算后验分布仍然需要一定的计算资源。
+
+\item \textbf{批量获取的次优性}：当前使用 softmax-BALD 进行批量获取，忽略了样本之间的相关性，可能与 BatchBALD 存在差距。
+\end{enumerate}
+
+\section{总结与展望}
+
+\subsection{贝叶斯主动学习方法的优势}
+
+结合课程内容和 Causal-BALD 项目的实践，我认为贝叶斯主动学习方法在因果推断中具有以下优势：
+
+\begin{enumerate}
+\item \textbf{理论严谨性}：基于信息论和贝叶斯决策理论，有坚实的数学基础。互信息作为信息增益的度量，在贝叶斯框架下自然出现。
+
+\item \textbf{不确定性量化}：能够区分认知不确定性和偶然不确定性，这对于理解估计的可靠性至关重要。在因果推断中，认知不确定性的量化帮助我们识别哪些区域的估计是不可靠的。
+
+\item \textbf{样本效率}：通过主动选择最有信息量的样本，能够用更少的标注数据达到更好的性能。这在标注成本高昂的场景（如医学诊断）中尤为重要。
+
+\item \textbf{处理复杂模型}：与深度学习方法结合，能够处理高维、非线性问题，如 CMNIST 数据集中的图像数据。
+
+\item \textbf{自适应性}：随着获取更多数据，后验分布不断更新，模型能够自适应地调整获取策略。
+\end{enumerate}
+
+\subsection{贝叶斯主动学习方法的局限性}
+
+然而，方法也存在一些局限性：
+
+\begin{enumerate}
+\item \textbf{先验选择的敏感性}：在课程中我们学习了先验分布的重要性。不合适的先验可能导致后验分布偏离真实情况，影响获取函数的效果。
+
+\item \textbf{计算复杂度}：虽然使用了变分近似等方法，但在大规模数据集上，计算后验分布和获取函数仍然需要一定的计算资源。MCMC 方法（如课程中介绍的 Metropolis-Hastings、Gibbs 抽样）虽然理论上更准确，但计算成本更高。
+
+\item \textbf{假设的强依赖}：方法依赖于无混杂性假设，但在实际应用中，隐藏混杂因子可能是普遍存在的。这可能导致有偏的采样和估计。
+
+\item \textbf{批量获取的挑战}：当前的方法主要关注单点获取，批量获取时如何考虑样本之间的相关性仍然是一个开放问题。
+
+\item \textbf{验证集的依赖}：方法假设可以访问验证集进行模型选择，但在实际应用中这可能不可用。
+\end{enumerate}
+
+\subsection{未来研究方向}
+
+基于课程学习和项目实践，我认为未来可以在以下方向进行深入研究：
+
+\subsubsection{放宽假设条件}
+
+\begin{enumerate}
+\item \textbf{处理隐藏混杂}：将关于隐藏混杂的信念纳入获取函数，放宽无混杂性假设。这可能涉及敏感性分析或结构因果模型。
+
+\item \textbf{弱重叠处理}：研究如何在弱重叠（Weak Overlap）的情况下设计获取函数，利用 D'Amour 和 Franks 提出的去混杂得分（Deconfounding Scores）。
+\end{enumerate}
+
+\subsubsection{改进计算方法}
+
+\begin{enumerate}
+\item \textbf{更高效的批量获取}：研究更严格的批量获取方法，如改进的 BatchBALD，以更好地考虑样本之间的相关性。
+
+\item \textbf{可扩展的贝叶斯推断}：结合课程中学习的 MCMC 方法，研究在大规模数据上的可扩展贝叶斯推断，如随机梯度 MCMC。
+
+\item \textbf{主动验证数据获取}：研究主动获取验证数据的方法，以在验证集不可用时进行模型选择。
+\end{enumerate}
+
+\subsubsection{应用拓展}
+
+\begin{enumerate}
+\item \textbf{多治疗设置}：将方法扩展到多治疗（Multi-treatment）场景，而不仅仅是二元治疗。
+
+\item \textbf{连续治疗}：研究如何处理连续治疗变量，这在实际应用中也很常见。
+
+\item \textbf{动态治疗策略}：结合强化学习，研究动态治疗策略的主动学习。
+\end{enumerate}
+
+\subsubsection{理论深化}
+
+\begin{enumerate}
+\item \textbf{信息论分析}：深入研究不同获取函数的信息论性质，如它们对 CATE 估计误差的收敛速度的影响。
+
+\item \textbf{贝叶斯决策理论}：结合课程中学习的贝叶斯决策理论，研究更一般的损失函数下的最优获取策略。
+
+\item \textbf{有限样本理论}：建立有限样本下的理论保证，分析样本复杂度。
+\end{enumerate}
+
+\subsection{课程学习总结}
+
+通过学习贝叶斯统计决策课程并完成 Causal-BALD 项目，我深刻理解了：
+
+\begin{enumerate}
+\item \textbf{贝叶斯思维的重要性}：将未知参数视为随机变量，通过先验和似然得到后验，这种思维方式在不确定性量化中非常重要。
+
+\item \textbf{信息论与贝叶斯的结合}：互信息作为信息增益的度量，在贝叶斯框架下自然地出现，为主动学习提供了理论指导。
+
+\item \textbf{理论与实践的平衡}：虽然理论很重要，但在实际应用中，计算效率和可扩展性同样重要。变分推断、MCMC 等方法都是在理论和实践之间的权衡。
+
+\item \textbf{领域知识的融入}：在因果推断中，仅仅使用通用的主动学习方法是不够的，需要结合领域知识（如重叠性假设）来设计更好的方法。
+
+\item \textbf{不确定性量化的重要性}：在医疗等高风险应用中，理解估计的不确定性至关重要，这正是贝叶斯方法的优势所在。
+\end{enumerate}
+
+\begin{thebibliography}{100}
+	\expandafter\ifx\csname natexlab\endcsname\relax\def\natexlab#1{#1}\fi
+	\expandafter\ifx\csname url\endcsname\relax
+	\def\url#1{\texttt{#1}}\fi
+	\expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
+
+\bibitem{abrevaya2015estimating} 
+Abrevaya, J., Hsu, Y. C., \& Lieli, R. P. (2015). Estimating conditional average treatment effects. \textit{Journal of Business \& Economic Statistics}, \textbf{33}(4), 485-505.
+
+\bibitem{alaa2017bayesian}
+Alaa, A. M., \& van der Schaar, M. (2017). Bayesian inference of individualized treatment effects using multi-task gaussian processes. \textit{Advances in Neural Information Processing Systems}, 3424-3432.
+
+\bibitem{alaa2018bayesian}
+Alaa, A. M., \& van der Schaar, M. (2018). Bayesian nonparametric causal inference: Information rates and learning algorithms. \textit{IEEE Journal of Selected Topics in Signal Processing}, \textbf{12}(5), 1031-1046.
+
+\bibitem{cohn1996active}
+Cohn, D. A., Ghahramani, Z., \& Jordan, M. I. (1996). Active learning with statistical models. \textit{Journal of artificial intelligence research}, \textbf{4}, 129-145.
+
+\bibitem{damour2021deconfounding}
+D'Amour, A., \& Franks, A. (2021). Deconfounding scores: Feature representations for causal effect estimation with weak overlap. \textit{arXiv preprint arXiv:2104.05762}.
+
+\bibitem{deng2011active}
+Deng, K., Pineau, J., \& Murphy, S. (2011). Active learning for personalizing treatment. \textit{2011 IEEE Symposium on Adaptive Dynamic Programming and Reinforcement Learning (ADPRL)}, 32-39.
+
+\bibitem{houlsby2011bayesian}
+Houlsby, N., Husz\'{a}r, F., Ghahramani, Z., \& Lengyel, M. (2011). Bayesian active learning for classification and preference learning. \textit{stat}, \textbf{1050}, 24.
+
+\bibitem{jesson2020identifying}
+Jesson, A., Mindermann, S., Shalit, U., \& Gal, Y. (2020). Identifying causal-effect inference failure with uncertainty-aware models. \textit{Advances in Neural Information Processing Systems}, \textbf{33}.
+
+\bibitem{jesson2021quantifying}
+Jesson, A., Mindermann, S., Gal, Y., \& Shalit, U. (2021). Quantifying ignorance in individual-level causal-effect estimates under hidden confounding. \textit{International Conference on Machine Learning}, 4829-4838.
+
+\bibitem{jesson2021causal}
+Jesson, A., Tigas, P., van Amersfoort, J., Kirsch, A., Shalit, U., \& Gal, Y. (2021). Causal-BALD: Deep Bayesian Active Learning of Outcomes to Infer Treatment-Effects from Observational Data. \textit{Advances in Neural Information Processing Systems}, \textbf{35}.
+
+\bibitem{kendall2017what}
+Kendall, A., \& Gal, Y. (2017). What uncertainties do we need in bayesian deep learning for computer vision? \textit{Advances in Neural Information Processing Systems}, \textbf{30}, 5574-5584.
+
+\bibitem{kirsch2019batchbald}
+Kirsch, A., Van Amersfoort, J., \& Gal, Y. (2019). Batchbald: Efficient and diverse batch acquisition for deep bayesian active learning. \textit{Advances in neural information processing systems}, \textbf{32}, 7026-7037.
+
+\bibitem{rubin1974estimating}
+Rubin, D. B. (1974). Estimating causal effects of treatments in randomized and nonrandomized studies. \textit{Journal of educational Psychology}, \textbf{66}(5), 688.
+
+\bibitem{shalit2017estimating}
+Shalit, U., Johansson, F. D., \& Sontag, D. (2017). Estimating individual treatment effect: generalization bounds and algorithms. \textit{International Conference on Machine Learning}, 3076-3085.
+
+\bibitem{sundin2019active}
+Sundin, I., Schulam, P., Siivola, E., Vehtari, A., Saria, S., \& Kaski, S. (2019). Active learning for decision-making from imbalanced observational data. \textit{International Conference on Machine Learning}, 6046-6055.
+
+\bibitem{van2021improving}
+van Amersfoort, J., Smith, L., Jesson, A., Key, O., \& Gal, Y. (2021). Improving deterministic uncertainty estimation in deep learning for classification and regression. \textit{arXiv preprint arXiv:2102.11409}.
+
+\end{thebibliography}
+
+\appendix
+
+\section{附录}
+
+\subsection{代码实现}
+
+\subsubsection{获取函数实现}
+
+项目中的获取函数实现在 \texttt{causal\_bald/library/acquisitions.py}：
+
+\begin{lstlisting}
+def mu_rho(mu_0, mu_1, t, pt, temperature):
+    """μρ-BALD: 结合 μ-BALD 和 ρ-BALD 的推荐方法"""
+    return mu(mu_0, mu_1, t, pt, temperature) + rho(mu_0, mu_1, t, pt, temperature)
+
+def mu(mu_0, mu_1, t, pt, temperature):
+    """μ-BALD: 基于可观测结果不确定性的获取函数"""
+    return (1 / temperature) * np.log((t * mu_1.var(0) + (1 - t) * mu_0.var(0)) + _eps)
+
+def rho(mu_0, mu_1, t, pt, temperature):
+    """ρ-BALD: 关注重叠区域的获取函数"""
+    return tau(mu_0, mu_1, t, pt, temperature) - mu(mu_0, mu_1, 1 - t, pt, temperature)
+\end{lstlisting}
+
+\subsubsection{主动学习流程}
+
+主动学习的核心实现在 \texttt{causal\_bald/application/workflows/active\_learning.py}，主要包括：
+\begin{itemize}
+\item 模型训练与后验分布计算
+\item 获取函数计算与样本选择
+\item 批量获取与训练集更新
+\end{itemize}
+
+\subsubsection{使用示例}
+
+\begin{verbatim}
+# 使用 μρ-BALD 进行主动学习
+causal-bald \
+    active-learning \
+        --job-dir experiments/ \
+        --num-trials 5 \
+        --step-size 10 \
+        --warm-start-size 100 \
+        --max-acquisitions 38 \
+        --acquisition-function mu-rho \
+        --temperature 0.25 \
+    ihdp \
+        --root assets/ \
+    deep-kernel-gp
+\end{verbatim}
+
+\subsection{数据集信息}
+
+\subsubsection{合成数据集}
+
+\begin{itemize}
+\item \textbf{生成代码}：\texttt{causal\_bald/library/datasets/synthetic.py}
+\item \textbf{特点}：可自定义偏差模式、重叠程度
+\item \textbf{可视化}：\texttt{assets/synthetic\_dataset.png}
+\end{itemize}
+
+\subsubsection{IHDP 数据集}
+
+\begin{itemize}
+\item \textbf{数据文件}：\texttt{assets/ihdp.RData}
+\item \textbf{加载代码}：\texttt{causal\_bald/library/datasets/ihdp.py}
+\item \textbf{特点}：真实的随机对照试验数据，存在选择偏差
+\end{itemize}
+
+\subsubsection{CMNIST 数据集}
+
+\begin{itemize}
+\item \textbf{加载代码}：\texttt{causal\_bald/library/datasets/hcmnist.py}
+\item \textbf{特点}：基于 MNIST 的高维图像数据
+\item \textbf{可视化}：\texttt{assets/cmnist\_dataset.png}
+\end{itemize}
+
+\subsection{实验结果文件}
+
+实验结果保存在 \texttt{experiments/} 目录下，包含：
+\begin{itemize}
+\item 不同获取函数的训练日志
+\item 模型检查点
+\item PEHE 评估结果
+\item 收敛曲线图（\texttt{assets/convergence.png}）
+\end{itemize}
+
+\subsection{可视化资源}
+
+\begin{itemize}
+\item \textbf{图1}：\texttt{paper/images/1.jpg} - 观测数据示例
+\item \textbf{图2}：\texttt{paper/images/2.jpg} - 朴素采集函数的影响
+\item \textbf{图3}：\texttt{paper/images/3.jpg} - Causal-BALD 获取函数的效果
+\item \textbf{图4}：\texttt{paper/images/4.jpg} - CMNIST 数据集说明
+\item \textbf{图5}：\texttt{paper/images/5.jpg} - 实验结果对比
+\item \textbf{收敛动画}：\texttt{assets/mu-rho.gif} - $\mu\rho$-BALD 获取策略下 CATE 函数的演化
+\end{itemize}
+
+\subsection{项目仓库}
+
+项目代码和文档可在以下位置获取：
+\begin{itemize}
+\item GitHub 仓库：\url{https://github.com/anndvision/causal-bald}
+\item 论文：\url{https://arxiv.org/abs/2111.02275}
+\end{itemize}
+
+\subsection{环境配置}
+
+项目使用 Conda 环境管理，配置文件为 \texttt{environment.yml}。主要依赖包括：
+\begin{itemize}
+\item PyTorch（深度学习框架）
+\item GPyTorch（高斯过程实现）
+\item NumPy、SciPy（数值计算）
+\item Matplotlib、Seaborn（可视化）
+\end{itemize}
+
+\section*{致谢}
+
+感谢贝叶斯统计决策课程的老师提供的理论指导，感谢 Causal-BALD 项目的作者们提供了优秀的代码实现和详细的论文。通过理论学习与实践结合，我对贝叶斯方法在因果推断和主动学习中的应用有了更深入的理解。
+
+\end{document}
